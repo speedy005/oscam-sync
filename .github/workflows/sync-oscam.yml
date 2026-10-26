@@ -1,49 +1,55 @@
 name: Sync OSCam with Streamboard
 
-on: schedule:
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
 
-- cron: "17 */6 * * *"
+permissions:
+  contents: read
 
-workflow_dispatch:
+jobs:
+  sync:
+    name: Synchronize OSCam master
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
-permissions: contents: read
+    steps:
+      - name: Checkout automation repository
+        uses: actions/checkout@v5
 
-jobs: sync: name: Synchronize OSCam master runs-on: ubuntu-latest timeout-minutes: 10
+      - name: Configure Git
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-steps:
-  - name: Checkout automation repository
-    uses: actions/checkout@v5
+      - name: Synchronize target repository
+        env:
+          GH_TOKEN: ${{ secrets.OSCAM_SYNC_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
-  - name: Configure Git
-    run: |
-      git config --global user.name "github-actions[bot]"
-      git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/speedy005/oscam-git.git" target
+          cd target
 
-  - name: Synchronize target repository
-    env:
-      GH_TOKEN: ${{ secrets.OSCAM_SYNC_TOKEN }}
-    shell: bash
-    run: |
-      set -euo pipefail
+          git remote add upstream https://git.streamboard.tv/common/oscam.git
+          git fetch --no-tags upstream master
 
-      git clone https://x-access-token:${GH_TOKEN}@github.com/speedy005/oscam-git.git target
-      cd target
+          UPSTREAM_COMMIT="$(git rev-parse upstream/master)"
+          echo "Streamboard commit: $UPSTREAM_COMMIT"
 
-      git remote add upstream https://git.streamboard.tv/common/oscam.git
-      git fetch --no-tags upstream master
+          git checkout -B master "$UPSTREAM_COMMIT"
+          git push --force origin master
 
-      UPSTREAM_COMMIT="$(git rev-parse upstream/master)"
-      echo "Streamboard commit: $UPSTREAM_COMMIT"
+          git fetch --no-tags origin master
+          LOCAL_COMMIT="$(git rev-parse origin/master)"
 
-      git checkout -B master "$UPSTREAM_COMMIT"
-      git push --force origin master
+          if [ "$LOCAL_COMMIT" != "$UPSTREAM_COMMIT" ]; then
+            echo "::error::GitHub master does not match Streamboard master."
+            exit 1
+          fi
 
-      git fetch --no-tags origin master
-      LOCAL_COMMIT="$(git rev-parse origin/master)"
-
-      if [ "$LOCAL_COMMIT" != "$UPSTREAM_COMMIT" ]; then
-        echo "::error::GitHub master does not match Streamboard master."
-        exit 1
-      fi
-
-      echo "Synchronization successful: $LOCAL_COMMIT"
+          echo "Synchronization successful: $LOCAL_COMMIT"
