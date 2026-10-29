@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sync-oscam-streamboard
+  cancel-in-progress: false
+
 jobs:
   sync:
     name: Synchronize OSCam master
@@ -17,6 +21,8 @@ jobs:
     steps:
       - name: Checkout automation repository
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Configure Git
         shell: bash
@@ -32,8 +38,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/speedy005/oscam-git.git" target
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Secret OSCAM_SYNC_TOKEN is missing."
+            exit 1
+          fi
+
+          # Token nicht in der gespeicherten Remote-URL hinterlegen.
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)" \
+            clone https://github.com/speedy005/oscam-git.git target
+
           cd target
+          unset GH_TOKEN
 
           git remote add upstream https://git.streamboard.tv/common/oscam.git
           git fetch --no-tags upstream master
@@ -41,8 +56,15 @@ jobs:
           UPSTREAM_COMMIT="$(git rev-parse upstream/master)"
           echo "Streamboard commit: $UPSTREAM_COMMIT"
 
+          # Prüfen, ob der Upstream-Commit vorhanden ist.
+          git cat-file -e "${UPSTREAM_COMMIT}^{commit}"
+
           git checkout -B master "$UPSTREAM_COMMIT"
-          git push --force origin master
+
+          # Authentifizierung nur für diesen Push verwenden.
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${{ secrets.OSCAM_SYNC_TOKEN }}" | base64 -w 0)"
+          git -c http.extraheader="$AUTH_HEADER" push --force origin master
+          unset AUTH_HEADER
 
           git fetch --no-tags origin master
           LOCAL_COMMIT="$(git rev-parse origin/master)"
