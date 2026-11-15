@@ -3,6 +3,7 @@ name: Sync OSCam with Streamboard
 on:
   schedule:
     - cron: "17 */6 * * *"
+      timezone: "Europe/Berlin"
   workflow_dispatch:
 
 permissions:
